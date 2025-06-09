@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Mon Jun  9 17:47:35 2025
-
-@author: user
+Corner Kick Sequence Analyzer with Sidebar Filters and PNG Export
 """
 
 import streamlit as st
@@ -130,7 +128,12 @@ def calculate_xg_stats(df, summary_df):
 
 def plot_corner_passes(summary_df, xg_total, xg_inswinger, xg_outswinger):
     pitch = VerticalPitch(half=True, pitch_type='statsbomb', line_color='black')
-    fig, ax = pitch.draw(figsize=(12, 10))
+    fig, axs = plt.subplots(2, 1, figsize=(12, 14), gridspec_kw={'height_ratios': [3, 1]})
+
+    ax_pitch = axs[0]
+    ax_info = axs[1]
+
+    pitch.draw(ax=ax_pitch)
 
     markers = {
         'First contact - direct shot': 'o',
@@ -151,30 +154,30 @@ def plot_corner_passes(summary_df, xg_total, xg_inswinger, xg_outswinger):
         subset = summary_df[summary_df['classification'] == classification]
         x = subset['pass_end_x']
         y = subset['pass_end_y']
-        pitch.scatter(x, y, ax=ax, marker=marker, color=colors[classification], label=classification, s=100, edgecolors='black')
+        pitch.scatter(x, y, ax=ax_pitch, marker=marker, color=colors[classification],
+                      label=classification, s=100, edgecolors='black')
 
     handles = [Line2D([0], [0], marker=m, color='w', label=cls,
                       markerfacecolor=colors[cls], markeredgecolor='black', markersize=10)
                for cls, m in markers.items()]
-    leg = ax.legend(handles=handles, title="Classification", loc='center left', bbox_to_anchor=(1.05, 0.5))
-    leg.get_frame().set_edgecolor('black')
+    leg = ax_info.legend(handles=handles, title="Classification", loc='center left', fontsize=10)
 
     stats_text = (
         f'Total xG: {xg_total:.3f}\n'
         f'xG from inswingers: {xg_inswinger:.3f}\n'
         f'xG from outswingers: {xg_outswinger:.3f}'
     )
-    plt.text(1.12, 0.5, stats_text, transform=ax.transAxes, fontsize=12,
-             verticalalignment='center', bbox=dict(facecolor='white', edgecolor='black', boxstyle='round,pad=0.5'))
+    ax_info.text(0.5, 0.5, stats_text, fontsize=12, verticalalignment='center',
+                 horizontalalignment='center', bbox=dict(facecolor='white', edgecolor='black', boxstyle='round,pad=0.5'))
 
-    plt.title('Corner Pass End Locations by Classification', fontsize=16)
-    plt.tight_layout(rect=[0, 0, 0.85, 1])
+    ax_info.axis('off')
+
+    plt.tight_layout()
 
     return fig
 
 # Streamlit UI
-st.title("Corner Kick Sequence Analyzer")
-st.write("This app classifies corner sequences and analyzes xG statistics for selected teams.")
+st.title("Corner Kick Sequence Analyzer with Team Filters and PNG Export")
 
 try:
     df = pd.read_excel('ger.xlsx')
@@ -183,18 +186,29 @@ try:
     df, summary_df = classify_corner_sequences(df)
 
     if summary_df is not None:
+        st.sidebar.header("Filters")
         team_list = summary_df['team'].dropna().unique()
-        selected_team = st.selectbox("Select a Team", team_list)
+        selected_team = st.sidebar.selectbox("Select a Team", team_list)
 
-        team_summary_df = summary_df[summary_df['team'] == selected_team]
+        side_options = ['Both', 'Left', 'Right']
+        selected_side = st.sidebar.selectbox("Select Corner Side", side_options)
+
+        classification_options = summary_df['classification'].unique().tolist()
+        selected_classifications = st.sidebar.multiselect("Select Classifications", classification_options, default=classification_options)
+
+        # Apply filters
+        filtered_df = summary_df[summary_df['team'] == selected_team]
+        if selected_side != 'Both':
+            filtered_df = filtered_df[filtered_df['side'] == selected_side]
+        filtered_df = filtered_df[filtered_df['classification'].isin(selected_classifications)]
 
         st.subheader(f"Classification Summary for {selected_team}")
-        st.write(team_summary_df['classification'].value_counts())
-        st.dataframe(team_summary_df)
+        st.write(filtered_df['classification'].value_counts())
+        st.dataframe(filtered_df)
 
-        xg_total, xg_inswinger, xg_outswinger = calculate_xg_stats(df, team_summary_df)
+        xg_total, xg_inswinger, xg_outswinger = calculate_xg_stats(df, filtered_df)
 
-        fig = plot_corner_passes(team_summary_df, xg_total, xg_inswinger, xg_outswinger)
+        fig = plot_corner_passes(filtered_df, xg_total, xg_inswinger, xg_outswinger)
         st.pyplot(fig)
 
         st.subheader(f"xG Statistics for {selected_team}")
@@ -202,9 +216,15 @@ try:
         st.write(f"**xG from inswingers:** {xg_inswinger:.3f}")
         st.write(f"**xG from outswingers:** {xg_outswinger:.3f}")
 
-        buffer = BytesIO()
-        team_summary_df.to_excel(buffer, index=False)
-        st.download_button(f"Download {selected_team} Results", buffer.getvalue(), file_name=f"{selected_team}_corner_classification.xlsx")
+        # Excel download
+        excel_buffer = BytesIO()
+        filtered_df.to_excel(excel_buffer, index=False)
+        st.download_button(f"Download {selected_team} Results (Excel)", excel_buffer.getvalue(), file_name=f"{selected_team}_corner_classification.xlsx")
+
+        # PNG download
+        png_buffer = BytesIO()
+        fig.savefig(png_buffer, format="png", bbox_inches='tight')
+        st.download_button(f"Download {selected_team} Pitch Plot (PNG)", png_buffer.getvalue(), file_name=f"{selected_team}_corner_plot.png")
 
 except Exception as e:
     st.error(f"Error processing file: {e}")
