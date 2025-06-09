@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Corner Kick Sequence Analyzer with Sidebar Filters and PNG Export
+Corner Kick Sequence Analyzer - Folder Batch Loading with Classification Summary under Legend
 """
 
 import streamlit as st
@@ -10,6 +10,7 @@ from mplsoccer import VerticalPitch
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from io import BytesIO
+import os
 
 st.set_page_config(page_title="Corner Kick Analysis", layout="wide")
 
@@ -160,71 +161,80 @@ def plot_corner_passes(summary_df, xg_total, xg_inswinger, xg_outswinger):
     handles = [Line2D([0], [0], marker=m, color='w', label=cls,
                       markerfacecolor=colors[cls], markeredgecolor='black', markersize=10)
                for cls, m in markers.items()]
-    leg = ax_info.legend(handles=handles, title="Classification", loc='center left', fontsize=10)
+    ax_info.legend(handles=handles, title="Classification", loc='upper left', fontsize=10)
 
     stats_text = (
         f'Total xG: {xg_total:.3f}\n'
         f'xG from inswingers: {xg_inswinger:.3f}\n'
-        f'xG from outswingers: {xg_outswinger:.3f}'
+        f'xG from outswingers: {xg_outswinger:.3f}\n\n'
+        'Classification Summary:\n' +
+        '\n'.join([f'{cls}: {count}' for cls, count in summary_df['classification'].value_counts().items()])
     )
     ax_info.text(0.5, 0.5, stats_text, fontsize=12, verticalalignment='center',
                  horizontalalignment='center', bbox=dict(facecolor='white', edgecolor='black', boxstyle='round,pad=0.5'))
 
     ax_info.axis('off')
-
     plt.tight_layout()
 
     return fig
 
 # Streamlit UI
-st.title("Corner Kick Sequence Analyzer with Team Filters and PNG Export")
+st.title("Corner Kick Sequence Analyzer - Folder Batch Loader")
 
-try:
-    df = pd.read_excel('ger.xlsx')
-    st.success("File 'ger.xlsx' loaded successfully!")
+folder_path = st.sidebar.text_input("Enter Folder Path Containing Excel Files:", "data")
 
-    df, summary_df = classify_corner_sequences(df)
+if os.path.isdir(folder_path):
+    file_list = [f for f in os.listdir(folder_path) if f.endswith('.xlsx')]
 
-    if summary_df is not None:
-        st.sidebar.header("Filters")
-        team_list = summary_df['team'].dropna().unique()
-        selected_team = st.sidebar.selectbox("Select a Team", team_list)
+    if file_list:
+        selected_file = st.sidebar.selectbox("Select a File to Analyze", file_list)
 
-        side_options = ['Both', 'Left', 'Right']
-        selected_side = st.sidebar.selectbox("Select Corner Side", side_options)
+        if selected_file:
+            try:
+                df = pd.read_excel(os.path.join(folder_path, selected_file))
+                st.success(f"Loaded {selected_file} successfully!")
 
-        classification_options = summary_df['classification'].unique().tolist()
-        selected_classifications = st.sidebar.multiselect("Select Classifications", classification_options, default=classification_options)
+                df, summary_df = classify_corner_sequences(df)
 
-        # Apply filters
-        filtered_df = summary_df[summary_df['team'] == selected_team]
-        if selected_side != 'Both':
-            filtered_df = filtered_df[filtered_df['side'] == selected_side]
-        filtered_df = filtered_df[filtered_df['classification'].isin(selected_classifications)]
+                if summary_df is not None:
+                    st.sidebar.header("Filters")
+                    team_list = summary_df['team'].dropna().unique()
+                    selected_team = st.sidebar.selectbox("Select a Team", team_list)
 
-        st.subheader(f"Classification Summary for {selected_team}")
-        st.write(filtered_df['classification'].value_counts())
-        st.dataframe(filtered_df)
+                    side_options = ['Both', 'Left', 'Right']
+                    selected_side = st.sidebar.selectbox("Select Corner Side", side_options)
 
-        xg_total, xg_inswinger, xg_outswinger = calculate_xg_stats(df, filtered_df)
+                    classification_options = summary_df['classification'].unique().tolist()
+                    selected_classifications = st.sidebar.multiselect("Select Classifications", classification_options, default=classification_options)
 
-        fig = plot_corner_passes(filtered_df, xg_total, xg_inswinger, xg_outswinger)
-        st.pyplot(fig)
+                    # Apply filters
+                    filtered_df = summary_df[summary_df['team'] == selected_team]
+                    if selected_side != 'Both':
+                        filtered_df = filtered_df[filtered_df['side'] == selected_side]
+                    filtered_df = filtered_df[filtered_df['classification'].isin(selected_classifications)]
 
-        st.subheader(f"xG Statistics for {selected_team}")
-        st.write(f"**Total xG from corners:** {xg_total:.3f}")
-        st.write(f"**xG from inswingers:** {xg_inswinger:.3f}")
-        st.write(f"**xG from outswingers:** {xg_outswinger:.3f}")
+                    st.subheader(f"Classification Summary for {selected_team}")
+                    st.write(filtered_df['classification'].value_counts())
+                    st.dataframe(filtered_df)
 
-        # Excel download
-        excel_buffer = BytesIO()
-        filtered_df.to_excel(excel_buffer, index=False)
-        st.download_button(f"Download {selected_team} Results (Excel)", excel_buffer.getvalue(), file_name=f"{selected_team}_corner_classification.xlsx")
+                    xg_total, xg_inswinger, xg_outswinger = calculate_xg_stats(df, filtered_df)
 
-        # PNG download
-        png_buffer = BytesIO()
-        fig.savefig(png_buffer, format="png", bbox_inches='tight')
-        st.download_button(f"Download {selected_team} Pitch Plot (PNG)", png_buffer.getvalue(), file_name=f"{selected_team}_corner_plot.png")
+                    fig = plot_corner_passes(filtered_df, xg_total, xg_inswinger, xg_outswinger)
+                    st.pyplot(fig)
 
-except Exception as e:
-    st.error(f"Error processing file: {e}")
+                    # Excel download
+                    excel_buffer = BytesIO()
+                    filtered_df.to_excel(excel_buffer, index=False)
+                    st.download_button(f"Download {selected_team} Results (Excel)", excel_buffer.getvalue(), file_name=f"{selected_team}_corner_classification.xlsx")
+
+                    # PNG download
+                    png_buffer = BytesIO()
+                    fig.savefig(png_buffer, format="png", bbox_inches='tight')
+                    st.download_button(f"Download {selected_team} Pitch Plot (PNG)", png_buffer.getvalue(), file_name=f"{selected_team}_corner_plot.png")
+
+            except Exception as e:
+                st.error(f"Error processing file: {e}")
+    else:
+        st.warning("No Excel files found in the provided folder.")
+else:
+    st.info("Please enter a valid folder path.")
