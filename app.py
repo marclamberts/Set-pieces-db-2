@@ -68,7 +68,8 @@ def classify_corner_sequences(df):
                 'corner_index': idx, 'classification': classification, 'side': side,
                 'pass_height': pass_height, 'pass_body_part': pass_body_part,
                 'pass_outcome': pass_outcome, 'pass_technique': pass_technique,
-                'pass_end_x': row['pass_end_x'], 'pass_end_y': row['pass_end_y']
+                'pass_end_x': row['pass_end_x'], 'pass_end_y': row['pass_end_y'],
+                'team': row['possession_team.name']
             })
             continue
 
@@ -94,7 +95,8 @@ def classify_corner_sequences(df):
             'corner_index': idx, 'classification': classification, 'side': side,
             'pass_height': pass_height, 'pass_body_part': pass_body_part,
             'pass_outcome': pass_outcome, 'pass_technique': pass_technique,
-            'pass_end_x': row['pass_end_x'], 'pass_end_y': row['pass_end_y']
+            'pass_end_x': row['pass_end_x'], 'pass_end_y': row['pass_end_y'],
+            'team': row['possession_team.name']
         })
 
     summary_df = pd.DataFrame(results)
@@ -172,33 +174,37 @@ def plot_corner_passes(summary_df, xg_total, xg_inswinger, xg_outswinger):
 
 # Streamlit UI
 st.title("Corner Kick Sequence Analyzer")
-st.write("Upload a StatsBomb event dataset (Excel) to classify corner sequences and analyze xG statistics.")
+st.write("This app classifies corner sequences and analyzes xG statistics for selected teams.")
 
-uploaded_file = st.file_uploader("Upload Excel file", type=['xlsx'])
+try:
+    df = pd.read_excel('ger.xlsx')
+    st.success("File 'ger.xlsx' loaded successfully!")
 
-if uploaded_file:
-    try:
-        df = pd.read_excel(uploaded_file)
-        df, summary_df = classify_corner_sequences(df)
+    df, summary_df = classify_corner_sequences(df)
 
-        if summary_df is not None:
-            st.subheader("Classification Summary")
-            st.write(summary_df['classification'].value_counts())
-            st.dataframe(summary_df)
+    if summary_df is not None:
+        team_list = summary_df['team'].dropna().unique()
+        selected_team = st.selectbox("Select a Team", team_list)
 
-            xg_total, xg_inswinger, xg_outswinger = calculate_xg_stats(df, summary_df)
+        team_summary_df = summary_df[summary_df['team'] == selected_team]
 
-            fig = plot_corner_passes(summary_df, xg_total, xg_inswinger, xg_outswinger)
-            st.pyplot(fig)
+        st.subheader(f"Classification Summary for {selected_team}")
+        st.write(team_summary_df['classification'].value_counts())
+        st.dataframe(team_summary_df)
 
-            st.subheader("xG Statistics")
-            st.write(f"**Total xG from corners:** {xg_total:.3f}")
-            st.write(f"**xG from inswingers:** {xg_inswinger:.3f}")
-            st.write(f"**xG from outswingers:** {xg_outswinger:.3f}")
+        xg_total, xg_inswinger, xg_outswinger = calculate_xg_stats(df, team_summary_df)
 
-            buffer = BytesIO()
-            summary_df.to_excel(buffer, index=False)
-            st.download_button("Download Classification Results", buffer.getvalue(), file_name="corner_classification_results.xlsx")
+        fig = plot_corner_passes(team_summary_df, xg_total, xg_inswinger, xg_outswinger)
+        st.pyplot(fig)
 
-    except Exception as e:
-        st.error(f"Error processing file: {e}")
+        st.subheader(f"xG Statistics for {selected_team}")
+        st.write(f"**Total xG from corners:** {xg_total:.3f}")
+        st.write(f"**xG from inswingers:** {xg_inswinger:.3f}")
+        st.write(f"**xG from outswingers:** {xg_outswinger:.3f}")
+
+        buffer = BytesIO()
+        team_summary_df.to_excel(buffer, index=False)
+        st.download_button(f"Download {selected_team} Results", buffer.getvalue(), file_name=f"{selected_team}_corner_classification.xlsx")
+
+except Exception as e:
+    st.error(f"Error processing file: {e}")
